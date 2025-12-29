@@ -1,0 +1,193 @@
+import tkinter as tk
+from tkinter import messagebox
+import random
+
+class AdvancedMemoryGame:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("記憶翻牌：生存挑戰版")
+        
+        # --- 遊戲參數設定 ---
+        self.total_time = 60    # 初始時間 60 秒
+        self.peek_uses = 1      # 透視眼可用次數
+        self.game_running = False
+        
+        # --- 遊戲變數 ---
+        self.buttons = []
+        self.cards = []
+        self.first_selection = None
+        self.second_selection = None
+        self.matches_found = 0
+        self.is_checking = False # 鎖定狀態
+        self.symbols = ['🍎', '🍌', '🍇', '🍉', '🐶', '🐱', '🚗', '🚀']
+
+        # --- 建立介面 ---
+        self.create_ui()
+        self.setup_board()
+        
+        # --- 啟動計時器 ---
+        self.start_timer()
+
+    def create_ui(self):
+        # 1. 頂部資訊區 (顯示時間與狀態)
+        info_frame = tk.Frame(self.root)
+        info_frame.pack(pady=10)
+
+        self.time_label = tk.Label(info_frame, text=f"⏳ 時間: {self.total_time}", font=("Arial", 16, "bold"), fg="blue")
+        self.time_label.pack(side=tk.LEFT, padx=20)
+
+        # 2. 遊戲區域 (網格)
+        self.game_frame = tk.Frame(self.root)
+        self.game_frame.pack()
+
+        # 3. 底部功能區 (透視眼與重置)
+        control_frame = tk.Frame(self.root)
+        control_frame.pack(pady=10)
+
+        self.peek_btn = tk.Button(control_frame, text=f"👁️ 透視眼 ({self.peek_uses})", 
+                                  command=self.use_peek, bg="gold", font=("Arial", 12))
+        self.peek_btn.pack(side=tk.LEFT, padx=10)
+
+        restart_btn = tk.Button(control_frame, text="🔄 重新開始", 
+                                command=self.reset_game, bg="lightblue", font=("Arial", 12))
+        restart_btn.pack(side=tk.LEFT, padx=10)
+
+    def setup_board(self):
+        # 清空舊按鈕 (如果是重置時)
+        for widget in self.game_frame.winfo_children():
+            widget.destroy()
+        
+        self.buttons = []
+        self.cards = self.symbols * 2
+        random.shuffle(self.cards)
+        
+        for i in range(16):
+            btn = tk.Button(self.game_frame, text=" ", font=("Arial", 24), 
+                            width=4, height=2,
+                            command=lambda index=i: self.on_card_click(index))
+            btn.grid(row=i//4, column=i%4, padx=5, pady=5)
+            self.buttons.append(btn)
+        
+        self.game_running = True
+
+    def start_timer(self):
+        if self.game_running and self.total_time > 0:
+            self.total_time -= 1
+            self.update_time_label()
+            # 每 1000 毫秒 (1秒) 呼叫自己一次
+            self.root.after(1000, self.start_timer)
+        elif self.total_time <= 0 and self.game_running:
+            self.game_over(win=False)
+
+    def update_time_label(self):
+        self.time_label.config(text=f"⏳ 時間: {self.total_time}")
+        # 時間少於 10 秒變紅色警告
+        if self.total_time < 10:
+            self.time_label.config(fg="red")
+        else:
+            self.time_label.config(fg="blue")
+
+    def use_peek(self):
+        # 特殊玩法：透視眼
+        if self.peek_uses > 0 and not self.is_checking and self.game_running:
+            self.peek_uses -= 1
+            self.peek_btn.config(text=f"👁️ 透視眼 ({self.peek_uses})", state="disabled")
+            
+            self.is_checking = True # 鎖定不讓玩家點擊
+            
+            # 暫時顯示所有未配對的牌
+            for i, btn in enumerate(self.buttons):
+                if btn['state'] != 'disabled': # 只顯示還沒配對成功的
+                    btn.config(text=self.cards[i], bg="lightyellow")
+            
+            # 1.5 秒後蓋回去
+            self.root.after(1500, self.hide_all_cards)
+
+    def hide_all_cards(self):
+        for i, btn in enumerate(self.buttons):
+            if btn['state'] != 'disabled':
+                btn.config(text=" ", bg="SystemButtonFace")
+        self.is_checking = False # 解鎖
+
+    def on_card_click(self, index):
+        if self.is_checking or not self.game_running or self.buttons[index]['text'] != " ":
+            return
+
+        self.buttons[index].config(text=self.cards[index], bg="white")
+
+        if self.first_selection is None:
+            self.first_selection = index
+        else:
+            self.second_selection = index
+            self.is_checking = True
+            self.check_match()
+
+    def check_match(self):
+        idx1, idx2 = self.first_selection, self.second_selection
+        
+        if self.cards[idx1] == self.cards[idx2]:
+            # 配對成功
+            self.buttons[idx1].config(bg="lightgreen", state="disabled")
+            self.buttons[idx2].config(bg="lightgreen", state="disabled")
+            self.matches_found += 1
+            
+            # 特殊玩法：獎勵時間
+            self.total_time += 5
+            self.update_time_label()
+            
+            self.reset_selection()
+            if self.matches_found == 8:
+                self.game_over(win=True)
+        else:
+            # 配對失敗：懲罰時間
+            self.total_time -= 2
+            self.update_time_label()
+            self.root.after(1000, self.hide_pair)
+
+    def hide_pair(self):
+        # 檢查遊戲是否還在進行（避免時間結束後還執行這裡報錯）
+        if self.game_running:
+            self.buttons[self.first_selection].config(text=" ", bg="SystemButtonFace")
+            self.buttons[self.second_selection].config(text=" ", bg="SystemButtonFace")
+            self.reset_selection()
+
+    def reset_selection(self):
+        self.first_selection = None
+        self.second_selection = None
+        self.is_checking = False
+
+    def game_over(self, win):
+        self.game_running = False
+        if win:
+            messagebox.showinfo("遊戲結束", f"恭喜通關！\n剩餘時間：{self.total_time} 秒")
+        else:
+            # 時間到，翻開所有牌給玩家看
+            for i, btn in enumerate(self.buttons):
+                btn.config(text=self.cards[i], bg="lightgray")
+            messagebox.showinfo("遊戲結束", "時間到！挑戰失敗 💀")
+
+    def reset_game(self):
+        # 重置所有數值
+        self.total_time = 60
+        self.peek_uses = 1
+        self.matches_found = 0
+        self.first_selection = None
+        self.second_selection = None
+        self.is_checking = False
+        
+        # 重置 UI
+        self.peek_btn.config(text=f"👁️ 透視眼 ({self.peek_uses})", state="normal")
+        self.update_time_label()
+        
+        # 重新佈局
+        self.setup_board()
+        
+        # 確保計時器重新啟動 (如果之前已經停止)
+        if not self.game_running: 
+            self.game_running = True
+            self.start_timer()
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    game = AdvancedMemoryGame(root)
+    root.mainloop()
